@@ -28,8 +28,10 @@ DWORD RETURN_CAnimManager_BlendAnimation_Hierarchy = 0x4D4577;
 
 auto CAnimBlendStaticAssociation_FreeSequenceArray = (hCAnimBlendStaticAssociation_FreeSequenceArray)0x4ce9a0;
 auto UncompressAnimation = (hUncompressAnimation)0x4d41c0;
-auto CAnimBlendAssociation_NewOperator = (hCAnimBlendAssociation_NewOperator)0x082119A;
 auto CAnimBlendAssociation_Constructor_staticAssocByReference = (hCAnimBlendAssociation_Constructor_staticAssocByReference)0x4CF080;
+
+auto CAnimBlendAssociation_NewOperator_US = (hCAnimBlendAssociation_NewOperator)0x82119A;
+auto CAnimBlendAssociation_NewOperator_EU = (hCAnimBlendAssociation_NewOperator)0x8211DA;
 
 AddAnimationHandler*            m_pAddAnimationHandler = nullptr;
 AddAnimationAndSyncHandler*     m_pAddAnimationAndSyncHandler = nullptr;
@@ -61,8 +63,10 @@ void CMultiplayerSA::SetBlendAnimationHierarchyHandler(BlendAnimationHierarchyHa
 CAnimBlendAssociationSAInterface* __cdecl CAnimBlendAssocGroup_CopyAnimation(RpClump* pClump, CAnimBlendAssocGroupSAInterface* pAnimAssocGroupInterface,
                                                                              AnimationId animID)
 {
+    auto CAnimBlendAssociation_NewOperator = pGameInterface->GetGameVersion() == VERSION_EU_10 ? CAnimBlendAssociation_NewOperator_EU : CAnimBlendAssociation_NewOperator_US;
     auto pAnimAssociationInterface =
         reinterpret_cast<CAnimBlendAssociationSAInterface*>(CAnimBlendAssociation_NewOperator(sizeof(CAnimBlendAssociationSAInterface)));
+
     if (pAnimAssociationInterface)
     {
         CAnimBlendStaticAssociationSAInterface staticAnimAssociationInterface;
