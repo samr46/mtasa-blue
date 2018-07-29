@@ -171,6 +171,7 @@ public:
     LUA_DECLARE(CreateSWATRope);
     LUA_DECLARE(SetBirdsEnabled);
     LUA_DECLARE(GetBirdsEnabled);
+    LUA_DECLARE(AddBirds);
     LUA_DECLARE(SetPedTargetingMarkerEnabled);
     LUA_DECLARE(IsPedTargetingMarkerEnabled);
     LUA_DECLARE(SetMoonSize);
