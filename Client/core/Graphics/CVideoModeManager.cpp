@@ -142,6 +142,8 @@ void CVideoModeManager::PreCreateDevice(D3DPRESENT_PARAMETERS* pp)
         SetWindowLong(m_hDeviceWindow, GWL_STYLE, WS_POPUP);
         MoveWindow(m_hDeviceWindow, iPosX, iPosY, pp->BackBufferWidth, pp->BackBufferHeight, TRUE);
         pp->Windowed = true;
+        //pp->PresentationInterval = D3DPRESENT_INTERVAL_IMMEDIATE;
+        pp->FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
     }
     else if (IsDisplayModeFullScreenWindow())
     {
@@ -150,6 +152,7 @@ void CVideoModeManager::PreCreateDevice(D3DPRESENT_PARAMETERS* pp)
         SetWindowLong(m_hDeviceWindow, GWL_STYLE, WS_POPUP);
         MoveWindow(m_hDeviceWindow, rc.left, rc.top, pp->BackBufferWidth, pp->BackBufferHeight, TRUE);
         pp->Windowed = true;
+        pp->FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
     }
 
     if (pp->SwapEffect == D3DSWAPEFFECT_FLIP && IsDisplayModeWindowed())
@@ -194,7 +197,6 @@ void CVideoModeManager::PreReset(D3DPRESENT_PARAMETERS* pp)
 
     pp->BackBufferWidth = m_ulForceBackBufferWidth;
     pp->BackBufferHeight = m_ulForceBackBufferHeight;
-    pp->FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
 }
 
 ///////////////////////////////////////////////////////////////
