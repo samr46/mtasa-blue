@@ -47,6 +47,9 @@ void _cdecl OnPreCreateDevice(IDirect3D9* pDirect3D, UINT Adapter, D3DDEVTYPE De
     ms_BehaviorFlags = *BehaviorFlags;
     ms_pPresentationParameters = pPresentationParameters;
     ms_ppReturnedDeviceInterface = ppReturnedDeviceInterface;
+
+    ms_pPresentationParameters->PresentationInterval = D3DPRESENT_INTERVAL_DEFAULT;
+    ms_pPresentationParameters->FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
 }
 
 // Hook info

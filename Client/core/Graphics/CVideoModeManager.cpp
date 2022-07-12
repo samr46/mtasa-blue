@@ -158,10 +158,6 @@ void CVideoModeManager::PreCreateDevice(D3DPRESENT_PARAMETERS* pp)
         WriteDebugEvent("Changed SwapEffect From D3DSWAPEFFECT_FLIP to D3DSWAPEFFECT_DISCARD");
     }
 
-    // Set refresh rate and presentation interval to default (automatic)
-    pp->PresentationInterval = pp->Windowed ? D3DPRESENT_INTERVAL_IMMEDIATE : D3DPRESENT_INTERVAL_DEFAULT;
-    pp->FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
-
     m_ulForceBackBufferWidth = pp->BackBufferWidth;
     m_ulForceBackBufferHeight = pp->BackBufferHeight;
     m_ulForceBackBufferColorDepth = (pp->BackBufferFormat == D3DFMT_R5G6B5) ? 16 : 32;
@@ -198,8 +194,6 @@ void CVideoModeManager::PreReset(D3DPRESENT_PARAMETERS* pp)
 
     pp->BackBufferWidth = m_ulForceBackBufferWidth;
     pp->BackBufferHeight = m_ulForceBackBufferHeight;
-
-    pp->PresentationInterval = pp->Windowed ? D3DPRESENT_INTERVAL_IMMEDIATE : D3DPRESENT_INTERVAL_DEFAULT;
     pp->FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
 }
 
