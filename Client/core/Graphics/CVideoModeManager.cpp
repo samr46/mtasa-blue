@@ -197,7 +197,7 @@ void CVideoModeManager::PreReset(D3DPRESENT_PARAMETERS* pp)
 
     pp->BackBufferWidth = m_ulForceBackBufferWidth;
     pp->BackBufferHeight = m_ulForceBackBufferHeight;
-    pp->FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
+    //pp->FullScreen_RefreshRateInHz = D3DPRESENT_RATE_DEFAULT;
 }
 
 ///////////////////////////////////////////////////////////////
