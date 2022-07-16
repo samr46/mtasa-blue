@@ -266,6 +266,7 @@ public:
     virtual void  GetWaterColor(float& fWaterRed, float& fWaterGreen, float& fWaterBlue, float& fWaterAlpha) = 0;
     virtual void  SetWaterColor(float fWaterRed, float fWaterGreen, float fWaterBlue, float fWaterAlpha) = 0;
     virtual void  ResetWater() = 0;
+    virtual void  AdjustFrameRateVariables(int limit) = 0;
     virtual void  SetCloudsEnabled(bool bDisabled) = 0;
     virtual bool  GetInteriorSoundsEnabled() = 0;
     virtual void  SetInteriorSoundsEnabled(bool bEnabled) = 0;

@@ -1730,6 +1730,8 @@ void CCore::RecalculateFrameRateLimit(uint uiServerFrameRateLimit, bool bLogToCo
             strStatus += SString(" (Using %d)", m_uiFrameRateLimit);
         CCore::GetSingleton().GetConsole()->Print(strStatus);
     }
+
+    m_pMultiplayer->AdjustFrameRateVariables(m_uiFrameRateLimit);
 }
 
 //

@@ -2230,6 +2230,17 @@ void CMultiplayerSA::ResetWater()
     MemPut<BYTE>(0x7051D7, 184);
 }
 
+void CMultiplayerSA::AdjustFrameRateVariables(int limit)
+{
+    float mul = limit / 30.0;
+
+    // Ped movements
+    MemPut<float>(0x858CA8, 0.07 * mul);
+
+    // Fire Truck range
+    MemPut<float>(0x872A58, 0.5 * mul);
+}
+
 bool CMultiplayerSA::GetExplosionsDisabled()
 {
     return m_bExplosionsDisabled;
