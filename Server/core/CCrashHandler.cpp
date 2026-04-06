@@ -195,6 +195,7 @@ long WINAPI CCrashHandler::HandleExceptionGlobal(_EXCEPTION_POINTERS* pException
 // file handles and exit the process cleanly.
 static bool TryWriteDump(MINIDUMPWRITEDUMP pDump, HANDLE hProcess, DWORD dwPid, HANDLE hFile, MINIDUMP_TYPE dumpType, _MINIDUMP_EXCEPTION_INFORMATION* pExInfo)
 {
+#ifdef _MSC_VER
     BOOL bResult = FALSE;
     __try
     {
@@ -205,6 +206,10 @@ static bool TryWriteDump(MINIDUMPWRITEDUMP pDump, HANDLE hProcess, DWORD dwPid, 
         return false;
     }
     return bResult != FALSE;
+#else
+    BOOL bResult = pDump(hProcess, dwPid, hFile, dumpType, pExInfo, NULL, NULL);
+    return bResult != FALSE;
+#endif
 }
 
 void CCrashHandler::DumpMiniDump(_EXCEPTION_POINTERS* pException, CExceptionInformation* pExceptionInformation)
