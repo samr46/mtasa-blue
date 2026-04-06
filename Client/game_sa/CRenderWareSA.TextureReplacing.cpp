@@ -968,8 +968,6 @@ namespace
                     updated.uiExpectedParentModelId = uiCurrentParentModelId;
                     updated.usExpectedParentTxdId = usCurrentParentTxdId;
                     updated.uiWaitConditionSerial = NextPendingReplacementConditionSerial();
-                    updated.ucRetryCount = 0;
-                    updated.uiFirstQueueTick = uiNow;
                     RequeuePendingReplacement(usModelId, updated, false);
                     continue;
                 }
@@ -3715,6 +3713,21 @@ namespace
             default:
                 break;
         }
+
+        // Rebinding materials resets them to the TXD chain's originals, overwriting
+        // any active replacement textures. Re-queue affected replacements so they
+        // get reapplied on the next pending-replacement tick.
+        auto itTexInfo = ms_ModelTexturesInfoMap.find(usTxdId);
+        if (itTexInfo != ms_ModelTexturesInfoMap.end())
+        {
+            const unsigned short usModelId = static_cast<unsigned short>(pModelInfo->GetModel());
+            for (SReplacementTextures* pReplacement : itTexInfo->second.usedByReplacements)
+            {
+                if (pReplacement && IsReplacementActive(pReplacement) &&
+                    std::find(pReplacement->usedInModelIds.begin(), pReplacement->usedInModelIds.end(), usModelId) != pReplacement->usedInModelIds.end())
+                    QueuePendingReplacement(usModelId, pReplacement, 0, 0);
+            }
+        }
     }
 }
 
@@ -4945,16 +4958,9 @@ bool CRenderWareSA::ModelInfoTXDAddTextures(SReplacementTextures* pReplacementTe
 
                     if (!bParentAvailable)
                     {
-                        if (usSlotParentTxdId != static_cast<unsigned short>(-1) && usSlotParentTxdId != usParentTxdId)
-                            CTxdStore_RemoveRef(usSlotParentTxdId);
-
-                        if (usSlotParentTxdId != usParentTxdId)
-                            CTxdStore_AddRef(usParentTxdId);
-
-                        pScriptSlot->usParentIndex = usParentTxdId;
-                        if (pCurrentParent != nullptr)
-                            SetTxdParent(pScriptSlot->rwTexDictonary, nullptr);
-
+                        // Leave pool and RW parent state alone until the parent is
+                        // loaded. Changing usParentIndex or clearing the RW parent
+                        // now would break SA's texture walk for non-replaced textures.
                         if (pParentInfo)
                             pParentInfo->Request(NON_BLOCKING, "ModelInfoTXDAddTextures-scriptParent");
 
