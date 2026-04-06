@@ -44,7 +44,7 @@ CExceptionInformation_Impl::CExceptionInformation_Impl()
 CExceptionInformation_Impl::~CExceptionInformation_Impl()
 {
     if (m_szModulePathName)
-        delete m_szModulePathName;
+        delete[] m_szModulePathName;
 }
 
 void CExceptionInformation_Impl::Set(unsigned int iCode, _EXCEPTION_POINTERS* pException)

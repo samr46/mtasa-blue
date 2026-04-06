@@ -47,6 +47,7 @@ static SString ms_strDumpPath;
 
 #ifdef WIN32
     #include <ctime>
+    #include <new>
     #include <tchar.h>
     #include <dbghelp.h>
 
@@ -180,7 +181,12 @@ void CCrashHandler::HandleExceptionGlobal(int iSig)
 long WINAPI CCrashHandler::HandleExceptionGlobal(_EXCEPTION_POINTERS* pException)
 {
     // Create the exception information class
-    CExceptionInformation_Impl* pExceptionInformation = new CExceptionInformation_Impl;
+    CExceptionInformation_Impl* pExceptionInformation = new (std::nothrow) CExceptionInformation_Impl;
+    if (!pExceptionInformation)
+    {
+        TerminateProcess(GetCurrentProcess(), 1);
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
     pExceptionInformation->Set(pException->ExceptionRecord->ExceptionCode, pException);
 
     // Write the dump
@@ -286,7 +292,12 @@ void CCrashHandler::DumpMiniDump(_EXCEPTION_POINTERS* pException, CExceptionInfo
 
                     SString strInfo;
                     strInfo += SString("Version = %s\n", strMTAVersionFull.c_str());
-                    strInfo += SString("Time = %s", ctime(&timeTemp));
+
+                    char szTimeBuf[64];
+                    struct tm tmLocal;
+                    localtime_s(&tmLocal, &timeTemp);
+                    strftime(szTimeBuf, sizeof(szTimeBuf), "%c\n", &tmLocal);
+                    strInfo += SString("Time = %s", szTimeBuf);
 
                     strInfo += SString("Module = %s\n", pExceptionInformation->GetModulePathName());
 
