@@ -2841,7 +2841,20 @@ namespace
                     }
 
                     if (pModelInfo->GetTextureDictionaryID() != existingTxdId)
+                    {
+                        // Same ref-count shortfall as the vanilla allocation path:
+                        // pre-add refs so the old TXD survives the transfer.
+                        CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                        if (pInterface)
+                        {
+                            size_t nExtra = pInterface->usNumberOfRefs;
+                            if (pInterface->pRwObject)
+                                nExtra++;
+                            for (size_t i = 0; i < nExtra; i++)
+                                CTxdStore_AddRef(pModelInfo->GetTextureDictionaryID());
+                        }
                         pModelInfo->SetTextureDictionaryID(existingTxdId);
+                    }
                     else if (bParentLinkWasRepaired)
                         RebindLoadedModelToCurrentTxd(pModelInfo, existingTxdId);
 
@@ -3228,7 +3241,27 @@ namespace
         info.usParentTxdId = usParentTxdId;
         info.bNeedsVehicleFallback = ShouldUseVehicleTxdFallback(usModelId);
 
-        CTxdStore_AddRef(usParentTxdId);  // Pin parent before SetTextureDictionaryID transfers entity refs
+        // SetTextureDictionaryID removes referencesCount refs from the old
+        // (parent) TXD, where referencesCount = usNumberOfRefs + loaded flag.
+        // SA's CBaseModelInfo::AddRef only bumps usNumberOfRefs without adding
+        // a TXD ref, so the parent may have fewer refs than the transfer
+        // expects. Pre-add enough to cover the transfer plus one pin ref.
+        {
+            size_t nParentRefsToAdd = 1;
+            if (bParentAvailable)
+            {
+                CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                if (pInterface)
+                {
+                    nParentRefsToAdd = pInterface->usNumberOfRefs;
+                    if (pInterface->pRwObject)
+                        nParentRefsToAdd++;
+                    nParentRefsToAdd++;
+                }
+            }
+            for (size_t i = 0; i < nParentRefsToAdd; i++)
+                CTxdStore_AddRef(usParentTxdId);
+        }
 
         // Only assign the model to the child TXD when the parent chain is
         // ready. Without a parent chain, texture lookups on the empty child
@@ -3317,7 +3350,20 @@ namespace
                     }
 
                     if (pModelInfo->GetTextureDictionaryID() != existingTxdId)
+                    {
+                        // Same ref-count shortfall as the new-allocation path:
+                        // pre-add refs so the old TXD survives the transfer.
+                        CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                        if (pInterface)
+                        {
+                            size_t nExtra = pInterface->usNumberOfRefs;
+                            if (pInterface->pRwObject)
+                                nExtra++;
+                            for (size_t i = 0; i < nExtra; i++)
+                                CTxdStore_AddRef(pModelInfo->GetTextureDictionaryID());
+                        }
                         pModelInfo->SetTextureDictionaryID(existingTxdId);
+                    }
                     else if (bParentLinkWasRepaired)
                         RebindLoadedModelToCurrentTxd(pModelInfo, existingTxdId);
 
@@ -3456,7 +3502,27 @@ namespace
         info.usParentTxdId = usParentTxdId;
         info.bNeedsVehicleFallback = ShouldUseVehicleTxdFallback(usModelId);
 
-        CTxdStore_AddRef(usParentTxdId);  // Pin parent before SetTextureDictionaryID transfers entity refs
+        // SetTextureDictionaryID removes referencesCount refs from the old
+        // (parent) TXD, where referencesCount = usNumberOfRefs + loaded flag.
+        // SA's CBaseModelInfo::AddRef only bumps usNumberOfRefs without adding
+        // a TXD ref, so the parent may have fewer refs than the transfer
+        // expects. Pre-add enough to cover the transfer plus one pin ref.
+        {
+            size_t nParentRefsToAdd = 1;
+            if (bParentAvailable)
+            {
+                CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                if (pInterface)
+                {
+                    nParentRefsToAdd = pInterface->usNumberOfRefs;
+                    if (pInterface->pRwObject)
+                        nParentRefsToAdd++;
+                    nParentRefsToAdd++;
+                }
+            }
+            for (size_t i = 0; i < nParentRefsToAdd; i++)
+                CTxdStore_AddRef(usParentTxdId);
+        }
 
         // Only assign the model to the child TXD when the parent chain is ready.
         // Without a parent chain, texture lookups on the empty child TXD find
@@ -3889,7 +3955,18 @@ void CRenderWareSA::ProcessPendingIsolatedModels(bool bBlockingParentLoad)
                 CTxdStore_SetupTxdParent(childTxdId);
 
                 if (pModelInfo->GetTextureDictionaryID() != childTxdId)
+                {
+                    CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                    if (pInterface)
+                    {
+                        size_t nExtra = pInterface->usNumberOfRefs;
+                        if (pInterface->pRwObject)
+                            nExtra++;
+                        for (size_t i = 0; i < nExtra; i++)
+                            CTxdStore_AddRef(pModelInfo->GetTextureDictionaryID());
+                    }
                     pModelInfo->SetTextureDictionaryID(childTxdId);
+                }
 
                 RwTexDictionary* pChildTxd = CTxdStore_GetTxd(childTxdId);
                 TxdTextureMap    txdTextureMap;
@@ -4058,7 +4135,18 @@ void CRenderWareSA::ProcessPendingIsolatedModels(bool bBlockingParentLoad)
         CTxdStore_SetupTxdParent(childTxdId);
 
         if (pModelInfo->GetTextureDictionaryID() != childTxdId)
+        {
+            CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+            if (pInterface)
+            {
+                size_t nExtra = pInterface->usNumberOfRefs;
+                if (pInterface->pRwObject)
+                    nExtra++;
+                for (size_t i = 0; i < nExtra; i++)
+                    CTxdStore_AddRef(pModelInfo->GetTextureDictionaryID());
+            }
             pModelInfo->SetTextureDictionaryID(childTxdId);
+        }
 
         RwTexDictionary* pChildTxd = CTxdStore_GetTxd(childTxdId);
         TxdTextureMap    txdTextureMap;
@@ -5061,6 +5149,17 @@ bool CRenderWareSA::ModelInfoTXDAddTextures(SReplacementTextures* pReplacementTe
                         return false;
                     }
 
+                    {
+                        CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                        if (pInterface)
+                        {
+                            size_t nExtra = pInterface->usNumberOfRefs;
+                            if (pInterface->pRwObject)
+                                nExtra++;
+                            for (size_t i = 0; i < nExtra; i++)
+                                CTxdStore_AddRef(pModelInfo->GetTextureDictionaryID());
+                        }
+                    }
                     pModelInfo->SetTextureDictionaryID(itIsolated->second.usTxdId);
                     UpdateIsolatedTxdLastUse(usModelId);
                 }
@@ -5223,6 +5322,17 @@ bool CRenderWareSA::ModelInfoTXDAddTextures(SReplacementTextures* pReplacementTe
                             return false;
                         }
 
+                        {
+                            CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                            if (pInterface)
+                            {
+                                size_t nExtra = pInterface->usNumberOfRefs;
+                                if (pInterface->pRwObject)
+                                    nExtra++;
+                                for (size_t i = 0; i < nExtra; i++)
+                                    CTxdStore_AddRef(pModelInfo->GetTextureDictionaryID());
+                            }
+                        }
                         pModelInfo->SetTextureDictionaryID(itIsolated->second.usTxdId);
                         UpdateIsolatedTxdLastUse(usModelId);
                     }
