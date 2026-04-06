@@ -3733,7 +3733,7 @@ namespace
 
 // Process deferred parent TXD setup for per-model isolated TXDs
 // Called periodically after streaming updates to finalize parent linkage once the parent TXD is loaded
-void CRenderWareSA::ProcessPendingIsolatedModels()
+void CRenderWareSA::ProcessPendingIsolatedModels(bool bBlockingParentLoad)
 {
     if (!pGame)
         return;
@@ -3868,9 +3868,17 @@ void CRenderWareSA::ProcessPendingIsolatedModels()
                         {
                             const unsigned int uiTxdStreamId = parentTxdId + static_cast<unsigned int>(iBaseIDforTXD);
                             pGame->GetStreaming()->RequestModel(uiTxdStreamId, 0x16);
+
+                            if (bBlockingParentLoad)
+                            {
+                                pGame->GetStreaming()->LoadAllRequestedModels(true, "ProcessPendingIsolatedModels");
+                                pParentTxd = CTxdStore_GetTxd(parentTxdId);
+                            }
                         }
                     }
-                    continue;
+
+                    if (pParentTxd == nullptr)
+                        continue;
                 }
 
                 // Complete parent-chain setup matching the clone-model deferred path:
@@ -4138,9 +4146,9 @@ void CRenderWareSA::ProcessPendingIsolatedModels()
     TryApplyPendingReplacements();
 }
 
-void CRenderWareSA::ProcessPendingIsolatedTxdParents()
+void CRenderWareSA::ProcessPendingIsolatedTxdParents(bool bBlockingParentLoad)
 {
-    ProcessPendingIsolatedModels();
+    ProcessPendingIsolatedModels(bBlockingParentLoad);
 }
 
 // Find or create texture info for model
