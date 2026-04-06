@@ -190,6 +190,23 @@ long WINAPI CCrashHandler::HandleExceptionGlobal(_EXCEPTION_POINTERS* pException
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
+// Call MiniDumpWriteDump under SEH. The dump writer can crash if the process
+// heap is corrupt; catching that crash here lets the handler clean up its
+// file handles and exit the process cleanly.
+static bool TryWriteDump(MINIDUMPWRITEDUMP pDump, HANDLE hProcess, DWORD dwPid, HANDLE hFile, MINIDUMP_TYPE dumpType, _MINIDUMP_EXCEPTION_INFORMATION* pExInfo)
+{
+    BOOL bResult = FALSE;
+    __try
+    {
+        bResult = pDump(hProcess, dwPid, hFile, dumpType, pExInfo, NULL, NULL);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        return false;
+    }
+    return bResult != FALSE;
+}
+
 void CCrashHandler::DumpMiniDump(_EXCEPTION_POINTERS* pException, CExceptionInformation* pExceptionInformation)
 {
     // Try to load the DLL in our directory
@@ -246,67 +263,78 @@ void CCrashHandler::DumpMiniDump(_EXCEPTION_POINTERS* pException, CExceptionInfo
 
             SString strFinalDumpPathFilename = PathJoin(ms_strDumpPath, "private", strFilename);
 
+            // Write the log before attempting the dump. If MiniDumpWriteDump crashes
+            // below (which happens when the process heap is corrupt), the log is
+            // already on disk and still captures the original exception info.
+            {
+                FILE* pFile = File::Fopen(PathJoin(ms_strDumpPath, "server_pending_upload.log"), "a+");
+                if (pFile)
+                {
+                    // Header
+                    fprintf(pFile, "%s", "** -- Unhandled exception -- **\n\n");
+
+                    // Write the time
+                    time_t timeTemp;
+                    time(&timeTemp);
+
+                    SString strMTAVersionFull = SString("%s", MTA_DM_BUILDTAG_LONG);
+
+                    SString strInfo;
+                    strInfo += SString("Version = %s\n", strMTAVersionFull.c_str());
+                    strInfo += SString("Time = %s", ctime(&timeTemp));
+
+                    strInfo += SString("Module = %s\n", pExceptionInformation->GetModulePathName());
+
+                    // Write the basic exception information
+                    strInfo += SString("Code = 0x%08X\n", pExceptionInformation->GetCode());
+                    strInfo += SString("Offset = 0x%08X\n\n", pExceptionInformation->GetAddressModuleOffset());
+
+                    // Write the register info
+                    strInfo += SString(
+                        "EAX=%08X  EBX=%08X  ECX=%08X  EDX=%08X  ESI=%08X\n"
+                        "EDI=%08X  EBP=%08X  ESP=%08X  EIP=%08X  FLG=%08X\n"
+                        "CS=%04X   DS=%04X  SS=%04X  ES=%04X   "
+                        "FS=%04X  GS=%04X\n\n",
+                        pExceptionInformation->GetEAX(), pExceptionInformation->GetEBX(), pExceptionInformation->GetECX(), pExceptionInformation->GetEDX(),
+                        pExceptionInformation->GetESI(), pExceptionInformation->GetEDI(), pExceptionInformation->GetEBP(), pExceptionInformation->GetESP(),
+                        pExceptionInformation->GetEIP(), pExceptionInformation->GetEFlags(), pExceptionInformation->GetCS(), pExceptionInformation->GetDS(),
+                        pExceptionInformation->GetSS(), pExceptionInformation->GetES(), pExceptionInformation->GetFS(), pExceptionInformation->GetGS());
+
+                    fprintf(pFile, "%s", strInfo.c_str());
+
+                    // End of unhandled exception
+                    fprintf(pFile, "%s", "** -- End of unhandled exception -- **\n\n\n");
+
+                    // Flush before close. fflush writes directly to the OS (no heap
+                    // alloc), so it succeeds even if the heap is corrupt. fclose
+                    // may fault when freeing internal buffers in that case.
+                    fflush(pFile);
+
+                    // Close the file
+                    fclose(pFile);
+                }
+            }
+
             // Create the file
             HANDLE hFile = CreateFile(strFinalDumpPathFilename, GENERIC_WRITE, FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
             if (hFile != INVALID_HANDLE_VALUE)
             {
-                // Create an exception information struct
                 _MINIDUMP_EXCEPTION_INFORMATION ExInfo;
                 ExInfo.ThreadId = GetCurrentThreadId();
                 ExInfo.ExceptionPointers = pException;
                 ExInfo.ClientPointers = FALSE;
 
-                // Write the dump
-                pDump(GetCurrentProcess(), GetCurrentProcessId(), hFile, (MINIDUMP_TYPE)(MiniDumpNormal | MiniDumpWithIndirectlyReferencedMemory), &ExInfo,
-                      NULL, NULL);
+                // MiniDumpWriteDump can crash if the process heap is corrupt at the time
+                // of the fault. TryWriteDump catches the secondary exception so this
+                // handler can finish cleanly.
+                const bool bDumpWritten = TryWriteDump(pDump, GetCurrentProcess(), GetCurrentProcessId(), hFile,
+                                                       (MINIDUMP_TYPE)(MiniDumpNormal | MiniDumpWithIndirectlyReferencedMemory), &ExInfo);
 
                 // Close the dumpfile
                 CloseHandle(hFile);
 
-                FileSave(PathJoin(ms_strDumpPath, "server_pending_upload_filename"), strFinalDumpPathFilename);
-            }
-
-            // Write a log with the generic exception information
-            FILE* pFile = File::Fopen(PathJoin(ms_strDumpPath, "server_pending_upload.log"), "a+");
-            if (pFile)
-            {
-                // Header
-                fprintf(pFile, "%s", "** -- Unhandled exception -- **\n\n");
-
-                // Write the time
-                time_t timeTemp;
-                time(&timeTemp);
-
-                SString strMTAVersionFull = SString("%s", MTA_DM_BUILDTAG_LONG);
-
-                SString strInfo;
-                strInfo += SString("Version = %s\n", strMTAVersionFull.c_str());
-                strInfo += SString("Time = %s", ctime(&timeTemp));
-
-                strInfo += SString("Module = %s\n", pExceptionInformation->GetModulePathName());
-
-                // Write the basic exception information
-                strInfo += SString("Code = 0x%08X\n", pExceptionInformation->GetCode());
-                strInfo += SString("Offset = 0x%08X\n\n", pExceptionInformation->GetAddressModuleOffset());
-
-                // Write the register info
-                strInfo += SString(
-                    "EAX=%08X  EBX=%08X  ECX=%08X  EDX=%08X  ESI=%08X\n"
-                    "EDI=%08X  EBP=%08X  ESP=%08X  EIP=%08X  FLG=%08X\n"
-                    "CS=%04X   DS=%04X  SS=%04X  ES=%04X   "
-                    "FS=%04X  GS=%04X\n\n",
-                    pExceptionInformation->GetEAX(), pExceptionInformation->GetEBX(), pExceptionInformation->GetECX(), pExceptionInformation->GetEDX(),
-                    pExceptionInformation->GetESI(), pExceptionInformation->GetEDI(), pExceptionInformation->GetEBP(), pExceptionInformation->GetESP(),
-                    pExceptionInformation->GetEIP(), pExceptionInformation->GetEFlags(), pExceptionInformation->GetCS(), pExceptionInformation->GetDS(),
-                    pExceptionInformation->GetSS(), pExceptionInformation->GetES(), pExceptionInformation->GetFS(), pExceptionInformation->GetGS());
-
-                fprintf(pFile, "%s", strInfo.c_str());
-
-                // End of unhandled exception
-                fprintf(pFile, "%s", "** -- End of unhandled exception -- **\n\n\n");
-
-                // Close the file
-                fclose(pFile);
+                if (bDumpWritten)
+                    FileSave(PathJoin(ms_strDumpPath, "server_pending_upload_filename"), strFinalDumpPathFilename);
             }
         }
 
