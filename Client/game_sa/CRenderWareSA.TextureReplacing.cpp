@@ -165,6 +165,10 @@ namespace
     // Prevents master destruction from freeing rasters that orphaned copies still reference.
     std::unordered_set<RwRaster*> g_OrphanedCopyRasters;
 
+    // Script TXD slots that hold a parent pin ref (CTxdStore_AddRef on their parent).
+    // Tracked so the pin can be released when the slot is freed or reparented.
+    std::unordered_set<unsigned short> g_ScriptTxdSlotsWithParentPin;
+
     // Cached global MTA raster set for PopulateOriginalTextures.
     // Contains rasters from g_ActiveReplacements, g_LeakedMasterTextures, and g_OrphanedCopyRasters.
     // Kept incrementally on additive changes (register, leak, orphan).
@@ -392,6 +396,7 @@ namespace
     constexpr uint32_t      PENDING_REPLACEMENT_MAX_AGE_MS = 300000;
     constexpr uint32_t      PENDING_REPLACEMENT_RETRY_INTERVAL_MS = 250;
     constexpr std::size_t   MAX_PENDING_REPLACEMENTS_PER_TICK = 64;
+    constexpr uint32_t      PENDING_REPLACEMENT_SLOW_RETRY_INTERVAL_MS = 5000;
     constexpr uint32_t      PENDING_ISOLATION_TIMEOUT_MS = 15000;
     constexpr std::size_t   MAX_PENDING_ISOLATED_PER_TICK = 64;
 
@@ -740,7 +745,7 @@ namespace
 
         const auto* pSnapshotEntry = FindPendingSnapshotEntry(usModelId, pReplacement);
         const bool  bMatchesSnapshotWaitCondition = pSnapshotEntry && pSnapshotEntry->uiExpectedParentModelId == uiExpectedParentModelId &&
-                                                   pSnapshotEntry->usExpectedParentTxdId == usExpectedParentTxdId;
+                                                    pSnapshotEntry->usExpectedParentTxdId == usExpectedParentTxdId;
 
         if (bMatchesSnapshotWaitCondition)
         {
@@ -945,16 +950,6 @@ namespace
                     continue;
                 }
 
-                if (entry.ucRetryCount >= MAX_PENDING_REPLACEMENT_RETRIES)
-                {
-                    if (ClearPendingOnModelIfNoLiveEntry(usModelId, entry))
-                    {
-                        AddReportLog(9401, SString("Dropping pending replacement for model %u after %u retries", usModelId,
-                                                   static_cast<unsigned int>(entry.ucRetryCount)));
-                    }
-                    continue;
-                }
-
                 if (uiNow < entry.uiNextRetryTick)
                 {
                     KeepPendingReplacement(usModelId, entry);
@@ -996,7 +991,18 @@ namespace
                 const bool bApplied = pRenderWareSA->ModelInfoTXDAddTextures(entry.pReplacement, usModelId);
                 if (!bApplied)
                 {
-                    RequeuePendingReplacement(usModelId, entry, true);
+                    if (entry.ucRetryCount >= MAX_PENDING_REPLACEMENT_RETRIES)
+                    {
+                        // Slow retry: keep trying with longer intervals until
+                        // the age limit expires, instead of silently giving up.
+                        SPendingReplacement slowRetry = entry;
+                        slowRetry.uiNextRetryTick = GetTickCount32() + PENDING_REPLACEMENT_SLOW_RETRY_INTERVAL_MS;
+                        KeepPendingReplacement(usModelId, slowRetry);
+                    }
+                    else
+                    {
+                        RequeuePendingReplacement(usModelId, entry, true);
+                    }
                 }
                 else
                 {
@@ -3876,17 +3882,38 @@ namespace
         }
 
         // Rebinding materials resets them to the TXD chain's originals, overwriting
-        // any active replacement textures. Re-queue affected replacements so they
-        // get reapplied on the next pending-replacement tick.
+        // any active replacement textures. Re-apply affected replacements right away
+        // so there's no visible frame gap where the model shows originals.
         auto itTexInfo = ms_ModelTexturesInfoMap.find(usTxdId);
         if (itTexInfo != ms_ModelTexturesInfoMap.end())
         {
             const unsigned short usModelId = static_cast<unsigned short>(pModelInfo->GetModel());
             for (SReplacementTextures* pReplacement : itTexInfo->second.usedByReplacements)
             {
-                if (pReplacement && IsReplacementActive(pReplacement) &&
-                    std::find(pReplacement->usedInModelIds.begin(), pReplacement->usedInModelIds.end(), usModelId) != pReplacement->usedInModelIds.end())
-                    QueuePendingReplacement(usModelId, pReplacement, 0, 0);
+                if (!pReplacement || !IsReplacementActive(pReplacement))
+                    continue;
+                if (std::find(pReplacement->usedInModelIds.begin(), pReplacement->usedInModelIds.end(), usModelId) == pReplacement->usedInModelIds.end())
+                    continue;
+
+                auto itPerTxd = std::find_if(pReplacement->perTxdList.begin(), pReplacement->perTxdList.end(),
+                                             [usTxdId](const SReplacementTextures::SPerTxd& entry) { return entry.usTxdId == usTxdId; });
+                if (itPerTxd == pReplacement->perTxdList.end())
+                    continue;
+
+                TextureSwapMap reapplyMap;
+                for (RwTexture* pReplacementTex : itPerTxd->usingTextures)
+                {
+                    if (!pReplacementTex || !pReplacementTex->name[0])
+                        continue;
+                    if (strnlen(pReplacementTex->name, RW_TEXTURE_NAME_LENGTH) >= RW_TEXTURE_NAME_LENGTH)
+                        continue;
+                    auto itOriginal = txdTextureMap.find(pReplacementTex->name);
+                    if (itOriginal != txdTextureMap.end() && itOriginal->second != pReplacementTex)
+                        reapplyMap[itOriginal->second] = pReplacementTex;
+                }
+
+                if (!reapplyMap.empty())
+                    ReplaceTextureInModel(pModelInfo, reapplyMap);
             }
         }
     }
@@ -4440,8 +4467,8 @@ CModelTexturesInfo* CRenderWareSA::GetModelTexturesInfo(unsigned short usModelId
             unsigned int    uiTxdStreamId = usTxdId + pGame->GetBaseIDforTXD();
             CStreamingInfo* pStreamInfoBusyCheck = IsStreamingInfoSlot(usTxdId) ? GetStreamingInfoSafe(uiTxdStreamId) : nullptr;
             bool            bBusy = IsStreamingInfoSlot(usTxdId) && pStreamInfoBusyCheck &&
-                         (pStreamInfoBusyCheck->loadState == eModelLoadState::LOADSTATE_READING ||
-                          pStreamInfoBusyCheck->loadState == eModelLoadState::LOADSTATE_FINISHING);
+                                    (pStreamInfoBusyCheck->loadState == eModelLoadState::LOADSTATE_READING ||
+                                     pStreamInfoBusyCheck->loadState == eModelLoadState::LOADSTATE_FINISHING);
             if (bBusy && !pCurrentTxd)
                 return nullptr;
 
@@ -4552,8 +4579,8 @@ CModelTexturesInfo* CRenderWareSA::GetModelTexturesInfo(unsigned short usModelId
                                         const unsigned int uiTxdDataStreamId = usTxdId + static_cast<unsigned int>(iBaseIDforTXD);
                                         CStreamingInfo*    pStreamInfo = GetStreamingInfoSafe(uiTxdDataStreamId);
                                         const bool         bBusyOrLoaded = pStreamInfo && (pStreamInfo->loadState == eModelLoadState::LOADSTATE_READING ||
-                                                                                   pStreamInfo->loadState == eModelLoadState::LOADSTATE_FINISHING ||
-                                                                                   pStreamInfo->loadState == eModelLoadState::LOADSTATE_LOADED);
+                                                                                           pStreamInfo->loadState == eModelLoadState::LOADSTATE_FINISHING ||
+                                                                                           pStreamInfo->loadState == eModelLoadState::LOADSTATE_LOADED);
                                         if (!bBusyOrLoaded)
                                             pGame->GetStreaming()->RequestModel(uiTxdDataStreamId, 0x16);
                                     }
@@ -5205,6 +5232,17 @@ bool CRenderWareSA::ModelInfoTXDAddTextures(SReplacementTextures* pReplacementTe
 
                     if (usSlotParentTxdId != usParentTxdId)
                     {
+                        // Release pin on old parent if one was set
+                        if (g_ScriptTxdSlotsWithParentPin.count(usModelCurrentTxdId) && usSlotParentTxdId != static_cast<unsigned short>(-1))
+                        {
+                            if (CTxdStore_GetTxd(usSlotParentTxdId) != nullptr)
+                                CTxdStore_RemoveRef(usSlotParentTxdId);
+                        }
+
+                        // Pin new parent so SA streaming won't evict it
+                        CTxdStore_AddRef(usParentTxdId);
+                        g_ScriptTxdSlotsWithParentPin.insert(usModelCurrentTxdId);
+
                         pScriptSlot->usParentIndex = usParentTxdId;
                         CTxdStore_SetupTxdParent(usModelCurrentTxdId);
                         RebindLoadedModelToCurrentTxd(pModelInfo, usModelCurrentTxdId);
@@ -6587,9 +6625,25 @@ void CRenderWareSA::CleanupIsolatedTxdForModel(unsigned short usModelId, bool bS
 ////////////////////////////////////////////////////////////////
 void CRenderWareSA::CleanupReplacementsInTxdSlot(unsigned short usTxdSlotId)
 {
+    // Release parent pin early so it runs even when ms_ModelTexturesInfoMap
+    // has no entry (e.g. after RemoveTxdFromReplacementTracking cleared it).
+    if (g_ScriptTxdSlotsWithParentPin.erase(usTxdSlotId))
+    {
+        auto* pTxdPoolSA = static_cast<CTxdPoolSA*>(&pGame->GetPools()->GetTxdPool());
+        auto* pSlot = pTxdPoolSA ? pTxdPoolSA->GetTextureDictonarySlot(usTxdSlotId) : nullptr;
+        if (pSlot && pSlot->usParentIndex != static_cast<unsigned short>(-1))
+        {
+            if (CTxdStore_GetTxd(pSlot->usParentIndex) != nullptr)
+                CTxdStore_RemoveRef(pSlot->usParentIndex);
+        }
+    }
+
     auto itInfo = ms_ModelTexturesInfoMap.find(usTxdSlotId);
     if (itInfo == ms_ModelTexturesInfoMap.end())
+    {
+        InvalidateTxdTextureMapCache(usTxdSlotId);
         return;
+    }
 
     CModelTexturesInfo& info = itInfo->second;
     RwTexDictionary*    pTxd = CTxdStore_GetTxd(usTxdSlotId);
@@ -8363,6 +8417,8 @@ void CRenderWareSA::StaticResetModelTextureReplacing()
 
     g_GlobalMtaRasterCache.clear();
     InvalidateGlobalMtaRasterCache();
+
+    g_ScriptTxdSlotsWithParentPin.clear();
 
     g_TxdToModelMap.clear();
     g_uiTxdToModelMapGeneration = ~0u;
