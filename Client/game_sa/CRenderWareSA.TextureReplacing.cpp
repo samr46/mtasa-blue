@@ -1328,7 +1328,18 @@ namespace
             }
 
             if (pModelInfo && pModelInfo->GetTextureDictionaryID() == usTxdId)
+            {
+                CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                if (pInterface)
+                {
+                    size_t nExtra = pInterface->usNumberOfRefs;
+                    if (pInterface->pRwObject)
+                        nExtra++;
+                    for (size_t i = 0; i < nExtra; i++)
+                        CTxdStore_AddRef(usTxdId);
+                }
                 pModelInfo->SetTextureDictionaryID(usParentTxdId);
+            }
 
             // Clean tracking entry before orphaning to prevent stale lookups
             ms_ModelTexturesInfoMap.erase(usTxdId);
@@ -3167,7 +3178,18 @@ namespace
                     RestoreModelTexturesToParent(pModelInfo, usModelId, usCurrentTxdId, usParentTxdId);
 
                 if (pModelInfo->GetTextureDictionaryID() != usParentTxdId)
+                {
+                    CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                    if (pInterface)
+                    {
+                        size_t nExtra = pInterface->usNumberOfRefs;
+                        if (pInterface->pRwObject)
+                            nExtra++;
+                        for (size_t i = 0; i < nExtra; i++)
+                            CTxdStore_AddRef(pModelInfo->GetTextureDictionaryID());
+                    }
                     pModelInfo->SetTextureDictionaryID(usParentTxdId);
+                }
 
                 MarkIsolationDenied();
                 return false;
@@ -3957,7 +3979,18 @@ void CRenderWareSA::ProcessPendingIsolatedModels(bool bBlockingParentLoad)
         {
             // Try to revert model TXD if parent is valid
             if (pModelInfo->GetTextureDictionaryID() == childTxdId && CTxdStore_GetTxd(parentTxdId) != nullptr)
+            {
+                CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                if (pInterface)
+                {
+                    size_t nExtra = pInterface->usNumberOfRefs;
+                    if (pInterface->pRwObject)
+                        nExtra++;
+                    for (size_t i = 0; i < nExtra; i++)
+                        CTxdStore_AddRef(childTxdId);
+                }
                 pModelInfo->SetTextureDictionaryID(parentTxdId);
+            }
 
             // If model still using a fully set-up isolated TXD, don't orphan it yet.
             // Deferred vanilla slots (GetParentID()==0 with usParentIndex==0xFFFF) never had a
@@ -4112,7 +4145,18 @@ void CRenderWareSA::ProcessPendingIsolatedModels(bool bBlockingParentLoad)
             // Not a deferred vanilla setup; stale entry, clear it.
             // Try to revert model TXD if parent is valid
             if (pModelInfo->GetTextureDictionaryID() == childTxdId && CTxdStore_GetTxd(parentTxdId) != nullptr)
+            {
+                CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                if (pInterface)
+                {
+                    size_t nExtra = pInterface->usNumberOfRefs;
+                    if (pInterface->pRwObject)
+                        nExtra++;
+                    for (size_t i = 0; i < nExtra; i++)
+                        CTxdStore_AddRef(childTxdId);
+                }
                 pModelInfo->SetTextureDictionaryID(parentTxdId);
+            }
 
             // If model still using a valid isolated TXD, don't orphan it - wait for natural cleanup
             if (pModelInfo->GetTextureDictionaryID() == childTxdId && CTxdStore_GetTxd(childTxdId) != nullptr)
@@ -4156,7 +4200,18 @@ void CRenderWareSA::ProcessPendingIsolatedModels(bool bBlockingParentLoad)
                 AddReportLog(9401, SString("ProcessPendingIsolatedModels: Orphaned isolated TXD %u (parent changed)", childTxdId));
 
             if (usCurrentParentTxdId != 0 && pModelInfo->GetTextureDictionaryID() != usCurrentParentTxdId)
+            {
+                CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                if (pInterface)
+                {
+                    size_t nExtra = pInterface->usNumberOfRefs;
+                    if (pInterface->pRwObject)
+                        nExtra++;
+                    for (size_t i = 0; i < nExtra; i++)
+                        CTxdStore_AddRef(pModelInfo->GetTextureDictionaryID());
+                }
                 pModelInfo->SetTextureDictionaryID(usCurrentParentTxdId);
+            }
             continue;
         }
 
@@ -4179,7 +4234,18 @@ void CRenderWareSA::ProcessPendingIsolatedModels(bool bBlockingParentLoad)
         {
             // Try to revert model TXD if parent is valid
             if (pModelInfo->GetTextureDictionaryID() == childTxdId && CTxdStore_GetTxd(parentTxdId) != nullptr)
+            {
+                CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                if (pInterface)
+                {
+                    size_t nExtra = pInterface->usNumberOfRefs;
+                    if (pInterface->pRwObject)
+                        nExtra++;
+                    for (size_t i = 0; i < nExtra; i++)
+                        CTxdStore_AddRef(childTxdId);
+                }
                 pModelInfo->SetTextureDictionaryID(parentTxdId);
+            }
 
             // If model still using a valid isolated TXD, don't orphan it - wait for natural cleanup
             if (pModelInfo->GetTextureDictionaryID() == childTxdId && CTxdStore_GetTxd(childTxdId) != nullptr)
@@ -5181,7 +5247,18 @@ bool CRenderWareSA::ModelInfoTXDAddTextures(SReplacementTextures* pReplacementTe
                     const unsigned short usStaleParentTxdId = itIsolated->second.usParentTxdId;
 
                     if (pModelInfo->GetTextureDictionaryID() == usStaleIsolatedTxdId && CTxdStore_GetTxd(usStaleParentTxdId) != nullptr)
+                    {
+                        CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                        if (pInterface)
+                        {
+                            size_t nExtra = pInterface->usNumberOfRefs;
+                            if (pInterface->pRwObject)
+                                nExtra++;
+                            for (size_t i = 0; i < nExtra; i++)
+                                CTxdStore_AddRef(usStaleIsolatedTxdId);
+                        }
                         pModelInfo->SetTextureDictionaryID(usStaleParentTxdId);
+                    }
 
                     ClearIsolatedTxdLastUse(usModelId);
                     ClearPendingIsolatedModel(usModelId);
@@ -5314,7 +5391,18 @@ bool CRenderWareSA::ModelInfoTXDAddTextures(SReplacementTextures* pReplacementTe
                     // Restore model to its parent TXD before releasing the pin,
                     // so the model doesn't remain pointed at a dead/disowned slot.
                     if (pModelInfo->GetTextureDictionaryID() == usCurrentTxdId)
+                    {
+                        CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                        if (pInterface)
+                        {
+                            size_t nExtra = pInterface->usNumberOfRefs;
+                            if (pInterface->pRwObject)
+                                nExtra++;
+                            for (size_t i = 0; i < nExtra; i++)
+                                CTxdStore_AddRef(usCurrentTxdId);
+                        }
                         pModelInfo->SetTextureDictionaryID(usParentTxdId);
+                    }
 
                     CTxdStore_RemoveRef(usParentTxdId);
                     ClearIsolatedTxdLastUse(usModelId);
@@ -5441,7 +5529,18 @@ bool CRenderWareSA::ModelInfoTXDAddTextures(SReplacementTextures* pReplacementTe
                         g_IsolatedModelByTxd.erase(itOwner);
                     }
                     if (pModelInfo->GetTextureDictionaryID() == usModelTxdId)
+                    {
+                        CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                        if (pInterface)
+                        {
+                            size_t nExtra = pInterface->usNumberOfRefs;
+                            if (pInterface->pRwObject)
+                                nExtra++;
+                            for (size_t i = 0; i < nExtra; i++)
+                                CTxdStore_AddRef(usModelTxdId);
+                        }
                         pModelInfo->SetTextureDictionaryID(usParentTxdId);
+                    }
                     CTxdStore_RemoveRef(usParentTxdId);
                     ClearIsolatedTxdLastUse(usModelId);
                     ClearPendingIsolatedModel(usModelId);
@@ -6263,10 +6362,8 @@ void CRenderWareSA::CleanupIsolatedTxdForModel(unsigned short usModelId, bool bS
         }
     }
 
-    // Hold a safety ref to prevent TXD destruction during SetTextureDictionaryID.
-    // SetTextureDictionaryID releases refs to the old TXD which may drop it to 0.
-    // Without this, the TXD gets destroyed before we can orphan its textures,
-    // causing shared rasters to be freed and leaving dangling pointers, > heap corruption.
+    // Hold a safety ref to keep the TXD alive during cleanup and orphaning.
+    // Without this, freed rasters get dereferenced during orphaning > heap corruption.
     const bool bIsolatedSlotValid = CTxdStore_GetTxd(usIsolatedTxdId) != nullptr;
     if (bIsolatedSlotValid)
         CTxdStore_AddRef(usIsolatedTxdId);
@@ -6276,6 +6373,22 @@ void CRenderWareSA::CleanupIsolatedTxdForModel(unsigned short usModelId, bool bS
     {
         if (pModelInfo->GetTextureDictionaryID() == usIsolatedTxdId)
         {
+            // SetTextureDictionaryID removes usNumberOfRefs + (pRwObject ? 1 : 0)
+            // refs from the old TXD. If the model gained refs after its TXD assignment,
+            // the removal can exceed what was originally added, causing underflow.
+            // Adding the same count here lets SetTextureDictionaryID use them safely.
+            if (bIsolatedSlotValid)
+            {
+                CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                if (pInterface)
+                {
+                    size_t nExtra = pInterface->usNumberOfRefs;
+                    if (pInterface->pRwObject)
+                        nExtra++;
+                    for (size_t i = 0; i < nExtra; i++)
+                        CTxdStore_AddRef(usIsolatedTxdId);
+                }
+            }
             pModelInfo->SetTextureDictionaryID(usParentTxdId);
 
             // SetTextureDictionaryID handles ref transfer even when the target
@@ -6412,7 +6525,6 @@ void CRenderWareSA::CleanupIsolatedTxdForModel(unsigned short usModelId, bool bS
     }
 
     // Release safety ref; may now allow TXD destruction
-    // Only release if we successfully added the ref earlier
     if (bIsolatedSlotValid)
         CTxdStore_RemoveRef(usIsolatedTxdId);
 
