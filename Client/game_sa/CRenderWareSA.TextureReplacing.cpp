@@ -5205,9 +5205,6 @@ bool CRenderWareSA::ModelInfoTXDAddTextures(SReplacementTextures* pReplacementTe
 
                     if (usSlotParentTxdId != usParentTxdId)
                     {
-                        if (usSlotParentTxdId != static_cast<unsigned short>(-1))
-                            CTxdStore_RemoveRef(usSlotParentTxdId);
-
                         pScriptSlot->usParentIndex = usParentTxdId;
                         CTxdStore_SetupTxdParent(usModelCurrentTxdId);
                         RebindLoadedModelToCurrentTxd(pModelInfo, usModelCurrentTxdId);

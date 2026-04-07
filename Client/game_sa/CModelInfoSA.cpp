@@ -2183,6 +2183,12 @@ void CModelInfoSA::ResetVehicleDummies(bool bRemoveFromDummiesMap)
         pVehicleModel = static_cast<CVehicleModelInfoSAInterface*>(GetInterface());
         if (!pVehicleModel || !pVehicleModel->pVisualInfo)
         {
+            if (pVehicleModel && pVehicleModel->usNumberOfRefs > 0)
+            {
+                if (CTxdStore_GetTxd(pVehicleModel->usTextureDictionary) != nullptr)
+                    CTxdStore_RemoveRef(pVehicleModel->usTextureDictionary);
+                pVehicleModel->usNumberOfRefs--;
+            }
             if (bRemoveFromDummiesMap)
                 ms_ModelDefaultDummiesPosition.erase(iter);
             return;
@@ -2225,6 +2231,12 @@ void CModelInfoSA::ResetAllVehicleDummies()
             pVehicleModel = static_cast<CVehicleModelInfoSAInterface*>(pModelInfoSA->GetInterface());
             if (!pVehicleModel || !pVehicleModel->pVisualInfo)
             {
+                if (pVehicleModel && pVehicleModel->usNumberOfRefs > 0)
+                {
+                    if (CTxdStore_GetTxd(pVehicleModel->usTextureDictionary) != nullptr)
+                        CTxdStore_RemoveRef(pVehicleModel->usTextureDictionary);
+                    pVehicleModel->usNumberOfRefs--;
+                }
                 it = ms_ModelDefaultDummiesPosition.erase(it);
                 continue;
             }
