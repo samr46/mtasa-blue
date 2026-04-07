@@ -2806,6 +2806,8 @@ namespace
         // Scripts may request model textures before game init completes.
         pTxdPoolSA->InitialisePool();
 
+        bool bXferredToParent = false;
+
         auto itExisting = g_IsolatedTxdByModel.find(usModelId);
         if (itExisting != g_IsolatedTxdByModel.end())
         {
@@ -2883,7 +2885,24 @@ namespace
                         pGame->GetStreaming()->LoadAllRequestedModels(true, "EnsureIsolatedTxd-reiso");
                     }
                 }
+                // Pre-add refs to the isolated child TXD so the transfer out of it
+                // doesn't underflow. SA's AddRef may have bumped usNumberOfRefs after
+                // isolation without adding TXD refs, creating the same shortfall as
+                // the allocation path.
+                {
+                    CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                    if (pInterface)
+                    {
+                        size_t nExtra = pInterface->usNumberOfRefs;
+                        if (pInterface->pRwObject)
+                            nExtra++;
+                        for (size_t i = 0; i < nExtra; i++)
+                            CTxdStore_AddRef(oldTxdId);
+                    }
+                }
                 pModelInfo->SetTextureDictionaryID(oldParentTxdId);
+                if (oldParentTxdId == usParentTxdId)
+                    bXferredToParent = true;
             }
 
             auto* oldSlot = pTxdPoolSA->GetTextureDictonarySlot(oldTxdId);
@@ -2989,7 +3008,19 @@ namespace
                     RestoreModelTexturesToParent(pModelInfo, usModelId, usCurrentTxdId, usParentTxdId);
 
                     if (pModelInfo->GetTextureDictionaryID() != usParentTxdId)
+                    {
+                        CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                        if (pInterface)
+                        {
+                            size_t nExtra = pInterface->usNumberOfRefs;
+                            if (pInterface->pRwObject)
+                                nExtra++;
+                            for (size_t i = 0; i < nExtra; i++)
+                                CTxdStore_AddRef(usCurrentTxdId);
+                        }
                         pModelInfo->SetTextureDictionaryID(usParentTxdId);
+                        bXferredToParent = true;
+                    }
                 }
                 else if (g_OrphanedIsolatedTxdSlots.count(usCurrentTxdId) > 0)
                 {
@@ -3157,9 +3188,27 @@ namespace
             bParentAvailable = (CTxdStore_GetTxd(usParentTxdId) != nullptr);
         }
 
+        // If the model is on a different TXD than the target parent (e.g. when a
+        // previous isolated slot was just torn down because the parent changed),
+        // pre-add refs to the CURRENT TXD so the transfer out of it doesn't underflow.
+        // Track whether the transfer already happened so the downstream pre-AddRef on
+        // usParentTxdId only adds the 1 pin instead of the full N+1 (parent already
+        // has +N from the transfer; adding N+1 more would leave N phantom refs).
         const unsigned short usModelTxdId = pModelInfo->GetTextureDictionaryID();
         if (usModelTxdId != usParentTxdId)
+        {
+            CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+            if (pInterface)
+            {
+                size_t nExtra = pInterface->usNumberOfRefs;
+                if (pInterface->pRwObject)
+                    nExtra++;
+                for (size_t i = 0; i < nExtra; i++)
+                    CTxdStore_AddRef(usModelTxdId);
+            }
             pModelInfo->SetTextureDictionaryID(usParentTxdId);
+            bXferredToParent = true;
+        }
 
         // Prefer standard-range [0, 5000) for isolation slots - these have
         // dedicated TXD streaming entries.  Fall back to [5000, 6316) which
@@ -3246,9 +3295,12 @@ namespace
         // SA's CBaseModelInfo::AddRef only bumps usNumberOfRefs without adding
         // a TXD ref, so the parent may have fewer refs than the transfer
         // expects. Pre-add enough to cover the transfer plus one pin ref.
+        // When bXferredToParent is true, the model was just moved to usParentTxdId
+        // above, so that TXD already has +N from the transfer; only the +1 pin is
+        // still needed here to avoid leaving N phantom refs on the parent.
         {
             size_t nParentRefsToAdd = 1;
-            if (bParentAvailable)
+            if (bParentAvailable && !bXferredToParent)
             {
                 CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
                 if (pInterface)
@@ -3310,6 +3362,8 @@ namespace
             return false;
 
         pTxdPoolSA->InitialisePool();
+
+        bool bXferredToParent = false;
 
         // Already isolated - reuse if parent matches, otherwise clean up old entry
         auto itExisting = g_IsolatedTxdByModel.find(usModelId);
@@ -3392,7 +3446,24 @@ namespace
                         pGame->GetStreaming()->LoadAllRequestedModels(true, "AllocateIsolatedTxdForVanillaModel-reiso");
                     }
                 }
+                // Pre-add refs to the isolated child TXD so the transfer out of it
+                // doesn't underflow. SA's AddRef may have bumped usNumberOfRefs after
+                // isolation without adding TXD refs, creating the same shortfall as
+                // the allocation path.
+                {
+                    CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
+                    if (pInterface)
+                    {
+                        size_t nExtra = pInterface->usNumberOfRefs;
+                        if (pInterface->pRwObject)
+                            nExtra++;
+                        for (size_t i = 0; i < nExtra; i++)
+                            CTxdStore_AddRef(oldTxdId);
+                    }
+                }
                 pModelInfo->SetTextureDictionaryID(oldParentTxdId);
+                if (oldParentTxdId == usParentTxdId)
+                    bXferredToParent = true;
             }
 
             auto       itOwner = g_IsolatedModelByTxd.find(oldTxdId);
@@ -3507,9 +3578,11 @@ namespace
         // SA's CBaseModelInfo::AddRef only bumps usNumberOfRefs without adding
         // a TXD ref, so the parent may have fewer refs than the transfer
         // expects. Pre-add enough to cover the transfer plus one pin ref.
+        // When bXferredToParent is true the teardown already added +N to
+        // usParentTxdId; only the 1 pin is still needed.
         {
             size_t nParentRefsToAdd = 1;
-            if (bParentAvailable)
+            if (bParentAvailable && !bXferredToParent)
             {
                 CBaseModelInfoSAInterface* pInterface = pModelInfo->GetInterface();
                 if (pInterface)
