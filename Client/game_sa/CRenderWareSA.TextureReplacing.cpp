@@ -5376,10 +5376,8 @@ bool CRenderWareSA::ModelInfoTXDAddTextures(SReplacementTextures* pReplacementTe
         }
         else if (!g_bInTxdReapply)
         {
-            // Vanilla models sharing a TXD can corrupt each other when multiple
-            // CClientTXDs are imported to different models on the same TXD slot.
-            // Isolate this model if the shared TXD already has replacement textures
-            // belonging to a different model.
+            // Vanilla models get their own isolated TXD so replacement textures
+            // stay out of the shared parent slot.
             const unsigned short usCurrentTxdId = pModelInfo->GetTextureDictionaryID();
 
             // Check for an existing isolation entry for this model.
@@ -5418,7 +5416,7 @@ bool CRenderWareSA::ModelInfoTXDAddTextures(SReplacementTextures* pReplacementTe
                 {
                     // Stale entry: slot was recycled or ownership changed.
                     // Clean up tracking, restore model to parent TXD so the
-                    // pending retry's conflict detection runs on the shared slot.
+                    // pending retry re-runs isolation on the shared slot.
                     const unsigned short usParentTxdId = itPrevIsolated->second.usParentTxdId;
 
                     if (itOwner != g_IsolatedModelByTxd.end() && itOwner->second == usModelId)
@@ -5454,13 +5452,10 @@ bool CRenderWareSA::ModelInfoTXDAddTextures(SReplacementTextures* pReplacementTe
             else if (itPrevIsolated != g_IsolatedTxdByModel.end() && itPrevIsolated->second.usParentTxdId == usCurrentTxdId)
             {
                 // Model was restored to its parent TXD but the isolation entry persists.
-                // During fast resource restarts, the other model's replacement may not
-                // have been re-added yet, so conflict detection alone would miss it.
-                // The existing isolation entry proves a conflict was detected before.
+                // Re-isolate so replacement textures stay out of the shared slot.
                 if (!AllocateIsolatedTxdForVanillaModel(usModelId, usCurrentTxdId))
                 {
-                    // Prior isolation proves the TXD is shared. Defer rather
-                    // than going through to shared injection.
+                    // Allocation failed. Defer until a slot frees up.
                     AddReportLog(9401, SString("AllocateIsolatedTxdForVanillaModel failed for model %u (re-isolation), deferring", usModelId));
                     QueuePendingReplacement(usModelId, pReplacementTextures, 0, 0);
                     return false;
@@ -5468,37 +5463,13 @@ bool CRenderWareSA::ModelInfoTXDAddTextures(SReplacementTextures* pReplacementTe
             }
             else if (itPrevIsolated == g_IsolatedTxdByModel.end())
             {
-                // Only isolate when the shared TXD already has replacement
-                // textures for a different model - multiple CClientTXDs
-                // imported to different models on the same slot would corrupt
-                // each other. Without a conflict, let textures go into the
-                // shared TXD so other models on the same slot can still find
-                // them through SA's texture walk.
-                bool bHasConflict = false;
-                auto itExisting = ms_ModelTexturesInfoMap.find(usCurrentTxdId);
-                if (itExisting != ms_ModelTexturesInfoMap.end())
+                // Keep vanilla replacements on a private TXD so later model
+                // loads and child TXDs dont pick them up from the shared slot.
+                if (!AllocateIsolatedTxdForVanillaModel(usModelId, usCurrentTxdId))
                 {
-                    for (const SReplacementTextures* pExisting : itExisting->second.usedByReplacements)
-                    {
-                        if (!pExisting || pExisting == pReplacementTextures)
-                            continue;
-
-                        if (pExisting->usedInTxdIds.count(usCurrentTxdId) > 0 && pExisting->usedInModelIds.count(usModelId) == 0)
-                        {
-                            bHasConflict = true;
-                            break;
-                        }
-                    }
-                }
-
-                if (bHasConflict)
-                {
-                    if (!AllocateIsolatedTxdForVanillaModel(usModelId, usCurrentTxdId))
-                    {
-                        AddReportLog(9401, SString("AllocateIsolatedTxdForVanillaModel failed for model %u (conflict), deferring", usModelId));
-                        QueuePendingReplacement(usModelId, pReplacementTextures, 0, 0);
-                        return false;
-                    }
+                    AddReportLog(9401, SString("AllocateIsolatedTxdForVanillaModel failed for model %u, deferring", usModelId));
+                    QueuePendingReplacement(usModelId, pReplacementTextures, 0, 0);
+                    return false;
                 }
             }
             else
@@ -5627,9 +5598,10 @@ bool CRenderWareSA::ModelInfoTXDAddTextures(SReplacementTextures* pReplacementTe
             }
             else
             {
-                // Non-isolated vanilla model during reapply: fall through to
-                // the shared TXD injection below so textures get re-added
-                // after a streaming reload.
+                // Isolation entry was lost (cleanup ran between import and
+                // reapply). Defer so re-isolation can run on the next try.
+                QueuePendingReplacement(usModelId, pReplacementTextures, 0, 0);
+                return false;
             }
         }
     }
@@ -6308,6 +6280,34 @@ bool CRenderWareSA::ModelInfoTXDAddTextures(SReplacementTextures* pReplacementTe
     {
         if (auto* pModelInfoForSwap = static_cast<CModelInfoSA*>(pGame->GetModelInfo(usModelId)))
             ReplaceTextureInModel(pModelInfoForSwap, parentSwapMap);
+    }
+
+    // When textures go into a shared TXD (model not isolated), all other
+    // models on the same slot see them through SA's texture walk. Track
+    // those models so the remove and reapply paths cover the full set.
+    if (g_IsolatedTxdByModel.count(usModelId) == 0)
+    {
+        const auto& sharedModels = GetModelsForTxd(pInfo->usTxdId);
+        for (unsigned short usSharedModelId : sharedModels)
+        {
+            if (usSharedModelId == usModelId)
+                continue;
+            if (pReplacementTextures->usedInModelIds.count(usSharedModelId))
+                continue;
+            if (g_IsolatedTxdByModel.count(usSharedModelId))
+                continue;
+
+            pReplacementTextures->usedInModelIds.insert(usSharedModelId);
+
+            if (!parentSwapMap.empty())
+            {
+                if (auto* pSharedMI = static_cast<CModelInfoSA*>(pGame->GetModelInfo(usSharedModelId)))
+                {
+                    if (pSharedMI->GetRwObject())
+                        ReplaceTextureInModel(pSharedMI, parentSwapMap);
+                }
+            }
+        }
     }
 
     if (g_IsolatedTxdByModel.count(usModelId) > 0)
